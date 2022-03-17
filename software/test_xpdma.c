@@ -34,14 +34,14 @@ int main() {
 
     data_in = (char *)malloc(buf_size);
     if (NULL == data_in) {
-        printf ("Failed to allocate input buffer memory (size: %lu bytes)\n", buf_size);
+        printf ("Failed to allocate input buffer memory (size: %u bytes)\n", buf_size);
         xpdma_close(fpga);
         return 1;
     }
 
     data_out = (char *)malloc(buf_size);
     if (NULL == data_out) {
-        printf ("Failed to allocate output buffer memory (size: %lu bytes)\n", buf_size);
+        printf ("Failed to allocate output buffer memory (size: %u bytes)\n", buf_size);
         xpdma_close(fpga);
         return 1;
     }
@@ -73,7 +73,7 @@ int main() {
         err_count += (data_in[c] != data_out[c]);
 
     if (err_count)
-        printf("%lu errors\n", err_count);
+        printf("%u errors\n", err_count);
     else
         printf("Ok\n");
 
