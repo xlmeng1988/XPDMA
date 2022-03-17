@@ -9,3 +9,6 @@ driver/.*
 *.mod.*
 Module.symvers
 modules.order
+*.a
+*.ko
+*.mod
