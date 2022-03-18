@@ -197,6 +197,7 @@ long xpdma_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
     
     down(&gSemDma);
   
+    stac();
 //    printk(KERN_INFO"%s: Ioctl command: %d \n", DEVICE_NAME, cmd);
     switch (cmd) {
         case IOCTL_RESET:
@@ -248,6 +249,7 @@ long xpdma_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
         default:
             break;
     }
+    clac();
     
     up(&gSemDma);
 
