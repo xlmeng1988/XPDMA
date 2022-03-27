@@ -12,3 +12,4 @@ modules.order
 *.a
 *.ko
 *.mod
+.vscode/

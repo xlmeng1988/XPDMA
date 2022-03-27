@@ -33,8 +33,27 @@ MODULE_AUTHOR("Strezhik Iurii");
 #define CDMA_STATUS_OFFSET  0x04         // Status Register
 #define CDMA_CDESC_OFFSET   0x08         // Current descriptor Register
 #define CDMA_TDESC_OFFSET   0x10         // Tail descriptor Register
+/**
+ * SA: CMDA Source Address - Offset 18h
+ * This register provides the source address for Simple DMA transfer by AXI CMDA.
+ * |31------------------------------------------0|
+ * |<------------Source Address[31:0]----------->|
+ **/
 #define CDMA_SRCADDR_OFFSET 0x18         // Source Address Register
+/**
+ * SA_MSB: CMDA Source Address - Offset 1Ch
+ * This register provides the MSB 32 bits of source address for Simple DMA transfer by AXI CMDA.
+ * This is applicable only when the address space is more than 32 bits.
+ * |31------------------------------------------0|
+ * |<------------Source Address[31:0]----------->|
+ **/
 #define CDMA_DSTADDR_OFFSET 0x20         // Dest Address Register
+/**
+ * DA: CMDA Destination Address - Offset 20h
+ * This register provides the Desination Address for Simple DMA transfer by AXI CMDA.
+ * |31------------------------------------------0|
+ * |<--------Destination Address[31:0]---------->|
+ **/
 #define CDMA_BTT_OFFSET     0x28         // Bytes to transfer Register
 
 #define AXI_PCIE_DM_ADDR    0x80000000   // AXI:BAR1 Address
@@ -60,6 +79,8 @@ MODULE_AUTHOR("Strezhik Iurii");
 
 #define CDMA_RESET_LOOP	    1000000      // Reset timeout counter limit
 #define SG_TRANSFER_LOOP    1000000      // Scatter Gather Transfer timeout counter limit
+
+// #define XPDMA_DEBUG 1   // debug
 
 // Scatter Gather Transfer descriptor
 typedef struct {
@@ -133,6 +154,8 @@ static inline void xpdma_writeReg (int id, u32 reg, u32 val);
 ssize_t xpdma_send (int id, void *data, size_t count, u32 addr);
 ssize_t xpdma_recv (int id, void *data, size_t count, u32 addr);
 void xpdma_showInfo (int id);
+void show_descriptors(int id);
+static inline void xpdma_debug(int id, const char *info);
 
 // Aliasing write, read, ioctl, etc...
 struct file_operations xpdma_intf = {
@@ -143,6 +166,16 @@ struct file_operations xpdma_intf = {
         open           : xpdma_open,
         release        : xpdma_release,
 };
+
+static inline void xpdma_debug(int id, const char *info)
+{
+#ifdef XPDMA_DEBUG
+    printk(KERN_INFO "%s: -------------------- id: %d, %s begin --------------------\n", DEVICE_NAME, id, info);
+    xpdma_showInfo(id);
+    show_descriptors(id);
+    printk(KERN_INFO "%s: -------------------- id, %d, %s end   --------------------\n", DEVICE_NAME, id, info);
+#endif
+}
 
 // ssize_t xpdma_write (int id, struct file *filp, const char *buf, size_t count, loff_t *f_pos)
 // {
@@ -194,6 +227,7 @@ long xpdma_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 {
     u32 regx = 0;
     int result = CRIT_ERR;
+    int id;
     
     down(&gSemDma);
   
@@ -228,19 +262,28 @@ long xpdma_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
             break;
         case IOCTL_SEND:
             // Send data from Host system to AXI CDMA
-//             printk(KERN_INFO"%s: FPGA %d\n", DEVICE_NAME, (*(cdmaBuffer_t *)arg).id);
-//             printk(KERN_INFO"%s: Send Data size 0x%X\n", DEVICE_NAME, (*(cdmaBuffer_t *)arg).count);
-//             printk(KERN_INFO"%s: Send Data address 0x%X\n", DEVICE_NAME, (*(cdmaBuffer_t *)arg).addr);
+            id = (*(cdmaBuffer_t *)arg).id;
+            xpdma_debug(id, "IOCTL_SEND 0"); // this is OK
+            // printk(KERN_INFO"%s: FPGA %d\n", DEVICE_NAME, (*(cdmaBuffer_t *)arg).id);
+            printk(KERN_INFO"%s: Send Data size 0x%X\n", DEVICE_NAME, (*(cdmaBuffer_t *)arg).count);
+            printk(KERN_INFO"%s: Send Data address 0x%X\n", DEVICE_NAME, (*(cdmaBuffer_t *)arg).addr);
             result = xpdma_send ((*(cdmaBuffer_t *)arg).id, (*(cdmaBuffer_t *)arg).data, (*(cdmaBuffer_t *)arg).count, (*(cdmaBuffer_t *)arg).addr);
-//             printk(KERN_INFO"%s: Sended\n", DEVICE_NAME);
+            // xpdma_showInfo (id); // this is OK
+            xpdma_debug(id, "IOCTL_SEND"); // this is OK
+            // xpdma_debug((*(cdmaBuffer_t *)arg).id, "IOCTL_SEND"); // this will report "#PF: supervisor read access in kernel mode"
+            printk(KERN_INFO"%s: Sended\n", DEVICE_NAME);
             break;
         case IOCTL_RECV:
             // Receive data from AXI CDMA to Host system
-//             printk(KERN_INFO"%s: FPGA %d\n", DEVICE_NAME, (*(cdmaBuffer_t *)arg).id);
-//             printk(KERN_INFO"%s: Receive Data size 0x%X\n", DEVICE_NAME, (*(cdmaBuffer_t *)arg).count);
-//             printk(KERN_INFO"%s: Receive Data address 0x%X\n", DEVICE_NAME, (*(cdmaBuffer_t *)arg).addr);
+            id = (*(cdmaBuffer_t *)arg).id;
+            xpdma_debug(id, "IOCTL_REV 0"); // this is OK
+            // printk(KERN_INFO"%s: FPGA %d\n", DEVICE_NAME, (*(cdmaBuffer_t *)arg).id);
+            printk(KERN_INFO"%s: Receive Data size 0x%X\n", DEVICE_NAME, (*(cdmaBuffer_t *)arg).count);
+            printk(KERN_INFO"%s: Receive Data address 0x%X\n", DEVICE_NAME, (*(cdmaBuffer_t *)arg).addr);
             result = xpdma_recv ((*(cdmaBuffer_t *)arg).id, (*(cdmaBuffer_t *)arg).data, (*(cdmaBuffer_t *)arg).count, (*(cdmaBuffer_t *)arg).addr);
-//             printk(KERN_INFO"%s: Received\n", DEVICE_NAME);
+            // xpdma_debug((*(cdmaBuffer_t *)arg).id, "IOCTL_REV");  // this will report "#PF: supervisor read access in kernel mode"
+            xpdma_debug(id, "IOCTL_REV"); // this is OK
+            printk(KERN_INFO"%s: Received\n", DEVICE_NAME);
             break;
         case IOCTL_INFO:
             xpdma_showInfo ((*(int *)arg));
@@ -309,9 +352,11 @@ ssize_t create_desc_chain(int id, int direction, u32 size, u32 addr)
     if (direction == PCI_DMA_FROMDEVICE) {
         srcAddr  = AXI_DDR3_ADDR + addr;
         destAddr = AXI_PCIE_DM_ADDR;
+        // printk(KERN_INFO"%s: create_desc_chain: PCI_DMA_FROMDEVICE, src: 0x%08X -> dst: 0x%08X\n", DEVICE_NAME, srcAddr, destAddr);
     } else if (direction == PCI_DMA_TODEVICE) {
         srcAddr  = AXI_PCIE_DM_ADDR;
         destAddr = AXI_DDR3_ADDR + addr;
+        // printk(KERN_INFO"%s: create_desc_chain: PCI_DMA_TODEVICE, src: 0x%08X -> dst: 0x%08X\n", DEVICE_NAME, srcAddr, destAddr);
     } else {
         printk(KERN_INFO"%s: Descriptors Chain create error: unknown direction\n", DEVICE_NAME);
         return (CRIT_ERR);
@@ -829,6 +874,7 @@ static int xpdma_init (void)
                 printk(KERN_WARNING"%s: Init: RESET timeout\n", DEVICE_NAME);
                 return (CRIT_ERR);
             }
+            xpdma_debug(c, "xpdma_init");
         }
     }
 
@@ -874,6 +920,7 @@ static void xpdma_exit (void)
 
             xpdmas[id].statFlags = 0;
             xpdmas[id].used = 0;
+            xpdma_debug(id, "xpdma_exit");
         }
     }
     // Unregister Device Driver
