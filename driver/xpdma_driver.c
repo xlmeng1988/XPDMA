@@ -47,6 +47,7 @@ MODULE_AUTHOR("Strezhik Iurii");
  * |31------------------------------------------0|
  * |<------------Source Address[31:0]----------->|
  **/
+<<<<<<< HEAD
 #define CDMA_DSTADDR_OFFSET 0x20         // Dest Address Register
 /**
  * DA: CMDA Destination Address - Offset 20h
@@ -54,6 +55,31 @@ MODULE_AUTHOR("Strezhik Iurii");
  * |31------------------------------------------0|
  * |<--------Destination Address[31:0]---------->|
  **/
+=======
+#define CDMA_SRCADDR_MSB_OFFSET 0x1C    // MSB of Source Address Register
+/**
+ * DA: CMDA Destination Address - Offset 20h
+ * This register provides the Desination Address for Simple DMA transfer by AXI CMDA.
+ * |31------------------------------------------0|
+ * |<--------Destination Address[31:0]---------->|
+ **/
+#define CDMA_DSTADDR_OFFSET 0x20         // Dest Address Register
+/**
+ * DA: CMDA Destination Address - Offset 24h
+ * This register provides the MSB of Desination Address for Simple DMA transfer by AXI CMDA.
+ * This is applicable only when the address space is more than 32 bits.
+ * |31------------------------------------------0|
+ * |<--------Destination Address[31:0]---------->|
+ **/
+#define CDMA_DSTADDR_MSB_OFFSET 0x24    // MSB of Dest Address Register
+/**
+ * BTT: CMDA Bytes to Transfer - Offset 28h
+ * This register provides the value for the bytes to transfer Simple DMA transfer
+ * by AXI CMDA.
+ * |31------------26|25-------------------------0|
+ * |<------RSVD---->|<----------BTT[25:0]------->|                    
+ **/
+>>>>>>> add some message print
 #define CDMA_BTT_OFFSET     0x28         // Bytes to transfer Register
 
 #define AXI_PCIE_DM_ADDR    0x80000000   // AXI:BAR1 Address
@@ -69,9 +95,44 @@ MODULE_AUTHOR("Strezhik Iurii");
 #define BRAM_STEP           0x8          // Translation Vector Length
 #define ADDR_BTT            0x00000008   // 64 bit address translation descriptor control length
 
+/**
+ * CDMA Control Regitster(CR) details(pg034-axi-cdma v4.1, page18)
+ **/
+/**
+ * Bits: 3
+ * Filed Name: SGIncld. 
+ * Description:
+ * SG Inclued.  Scatter Gather(SG) Included.
+ * This bit indicateds if the AXI CDMA has been implemented with Scatter Gather support included.
+ * 0 = Scatter Gather not included. Only Simple DMA operations are supported.
+ * 1 = Scatter Gather is included. Both Simple DMA and Scatter Gather operations are supported
+ **/
 #define CDMA_CR_SG_EN       0x00000008   // Scatter gather mode enable
-#define CDMA_CR_IDLE_MASK   0x00000002   // CDMA Idle mask
+/**
+ * Bits: 2
+ * Filed Name: Reset.
+ * Description:
+ * Soft reset control for the AXI CMDA core. Setting this bit to a 1 causes the AXI CDMA to the reset.
+ * Reset is accomplished gracefully. Committed AXI4 transfers are flushed.
+ * After completion of a soft reset, all registers and bits are in the Reset State.
+ **/
 #define CDMA_CR_RESET_MASK  0x00000004   // CDMA Reset mask
+/**
+ * Bits: 1
+ * Filed Name: Idle. 
+ * Description:
+ * CDMA Idle. Indicates the state of AXI CMDA operations.
+ * When set and in Simple DMA mode, the bit indicates the programmed transfer has complated and the CMDA is 
+ * waiting for a new transfer to be programed. Writing to the bytes to transfer (BTT) regitser in Simple DMA 
+ * mode cause the CDMA to start (not Idle).
+ * When set and in SG mode, the bit indicateds the SG Engine has reached the tail pointer for the associated 
+ * channel and all queued descriptors have been processed. Writing to the tail pointer register automatically 
+ * restarts CMDA SG operations.
+ * 0 = Scatter Gather not included. Only Simple DMA operations are supported.
+ * 1 = Scatter Gather is included. Both Simple DMA and Scatter Gather operations are supported
+ **/
+#define CDMA_CR_IDLE_MASK   0x00000002   // CDMA Idle mask
+
 #define AXIBAR2PCIEBAR_0U   0x208        // AXI:BAR0 Upper Address Translation (bits [63:32])
 #define AXIBAR2PCIEBAR_0L   0x20C        // AXI:BAR0 Lower Address Translation (bits [31:0])
 #define AXIBAR2PCIEBAR_1U   0x210        // AXI:BAR1 Upper Address Translation (bits [63:32])
@@ -80,7 +141,11 @@ MODULE_AUTHOR("Strezhik Iurii");
 #define CDMA_RESET_LOOP	    1000000      // Reset timeout counter limit
 #define SG_TRANSFER_LOOP    1000000      // Scatter Gather Transfer timeout counter limit
 
+<<<<<<< HEAD
 // #define XPDMA_DEBUG 1   // debug
+=======
+#define XPDMA_DEBUG 1   // debug
+>>>>>>> add some message print
 
 // Scatter Gather Transfer descriptor
 typedef struct {
@@ -144,8 +209,9 @@ static struct xpdma_state xpdmas[XPDMA_NUM_MAX];
 
 // Prototypes
 static int xpdma_reset(int id);
-// ssize_t xpdma_write (int id, struct file *filp, const char *buf, size_t count, loff_t *f_pos);
-// ssize_t xpdma_read (int id, struct file *filp, char *buf, size_t count, loff_t *f_pos);
+static int xpdma_isIdle(int id);
+ssize_t xpdma_write (struct file *filp, const char __user *buf, size_t count, loff_t *f_pos);
+ssize_t xpdma_read (struct file *filp, char __user *buf, size_t count, loff_t *f_pos);
 long xpdma_ioctl (struct file *filp, unsigned int cmd, unsigned long arg);
 int xpdma_open(struct inode *inode, struct file *filp);
 int xpdma_release(struct inode *inode, struct file *filp);
@@ -159,8 +225,8 @@ static inline void xpdma_debug(int id, const char *info);
 
 // Aliasing write, read, ioctl, etc...
 struct file_operations xpdma_intf = {
-        //read           : xpdma_read,
-        //write          : xpdma_write,
+        read           : xpdma_read,
+        write          : xpdma_write,
         unlocked_ioctl : xpdma_ioctl,
         //llseek         : xpdma_lseek,
         open           : xpdma_open,
@@ -172,57 +238,207 @@ static inline void xpdma_debug(int id, const char *info)
 #ifdef XPDMA_DEBUG
     printk(KERN_INFO "%s: -------------------- id: %d, %s begin --------------------\n", DEVICE_NAME, id, info);
     xpdma_showInfo(id);
-    show_descriptors(id);
+    // show_descriptors(id);
     printk(KERN_INFO "%s: -------------------- id, %d, %s end   --------------------\n", DEVICE_NAME, id, info);
 #endif
 }
+ssize_t xpdma_write (struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
+{
+    int id = 0;
+    dma_addr_t pntr = 0;
+//    dma_addr_t dma_addr;
 
-// ssize_t xpdma_write (int id, struct file *filp, const char *buf, size_t count, loff_t *f_pos)
-// {
-// //    dma_addr_t dma_addr;
-// 
-//     /*if ( (count % 4) != 0 )  {
-//         printk("%s: xpdma_writeMem: Buffer length not dword aligned.\n",DEVICE_NAME);
-//         return (CRIT_ERR);
-//     }*/
-// 
-//     // Now it is safe to copy the data from user space.
-//     if ( copy_from_user(xpdmas[id].writeBuffer, buf, count) )  {
-//         printk("%s: xpdma_writeMem: Failed copy from user.\n", DEVICE_NAME);
-//         return (CRIT_ERR);
-//     }
-// 
-//     //TODO: set DMA semaphore
-// 
-//     printk("%s: xpdma_writeMem: WriteBuf Virt Addr = %lX Phy Addr = %lX.\n",
-//            DEVICE_NAME, (size_t)xpdmas[id].writeBuffer, (size_t)xpdmas[id].writeHWAddr);
-// 
-//     //TODO: release DMA semaphore
-// 
-//     printk(KERN_INFO"%s: XPCIe_Write: %lu bytes have been written...\n", DEVICE_NAME, count);
-// 
-//     return (SUCCESS);
-// }
-// 
-// ssize_t xpdma_read (int id, struct file *filp, char *buf, size_t count, loff_t *f_pos)
-// {
-//     //TODO: set DMA semaphore
-// 
-//     printk("%s: xpdma_readMem: ReadBuf Virt Addr = %lX Phy Addr = %lX.\n",
-//            DEVICE_NAME, (size_t)xpdmas[id].readBuffer, (size_t)xpdmas[id].readHWAddr);
-// 
-//     //TODO: release DMA semaphore
-// 
-//     // copy the data to user space.
-//     if ( copy_to_user(buf, xpdmas[id].readBuffer, count) )  {
-//         printk("%s: xpdma_readMem: Failed copy to user.\n", DEVICE_NAME);
-//         return (CRIT_ERR);
-//     }
-// 
-//     printk(KERN_INFO"%s: XPCIe_Read: %lu bytes have been read...\n", DEVICE_NAME, count);
-//     return (SUCCESS);
-// }
-// 
+    // xpdma_debug(id, "xpdma_write 0");
+
+    if ( (count % 4) != 0 )  {
+        printk(KERN_WARNING "%s: xpdma_writeMem: Buffer length not dword aligned.\n", DEVICE_NAME);
+        return (CRIT_ERR);
+    }
+    // set DMA semaphore
+    down(&gSemDma);
+
+    // Now it is safe to copy the data from user space.
+    if ( copy_from_user(xpdmas[id].writeBuffer, buf, count) )  {
+        printk(KERN_INFO"%s: xpdma_writeMem: Failed copy from user.\n", DEVICE_NAME);
+        return (CRIT_ERR);
+    }
+    printk(KERN_INFO "%s: copy_from_user(%s).\n", DEVICE_NAME, xpdmas[id].writeBuffer);
+
+    printk(KERN_INFO"%s: xpdma_writeMem: WriteBuf Virt Addr = %lX Phy Addr = %lX.\n",
+           DEVICE_NAME, (size_t)xpdmas[id].writeBuffer, (size_t)xpdmas[id].writeHWAddr);
+    printk(KERN_INFO"%s: XPCIe_Write: %lu bytes have been written...\n", DEVICE_NAME, count);
+
+    // 0. Set DMA to Simple DMA mode
+    xpdma_writeReg(id, CDMA_OFFSET + CDMA_CONTROL_OFFSET, 0);
+
+    // 1. Verify CMDASR.IDLE = 1.
+    if (!xpdma_isIdle(id)) {
+        printk(KERN_INFO "%s: CDMA is not idle\n", DEVICE_NAME);
+        xpdma_showInfo(id);
+        return (CRIT_ERR);
+    }
+
+    // 2. Program the CDMARCR.IOC_IrqEn bit to the desired state for interrupt generation on transfer completion.
+    //    Also set the error interrupt enable (CDMACR.ERR_IrqEn), if so desired.
+
+    // 3. Write the desired transfer source address to the Source Address (SA) regitser. The transfer data at the
+    //    source address must be valid and ready for transfer. If the address space selected is more than 32 bit,
+    //    write the SA_MSB register also.
+        {
+        // Update PCIe Translation vector
+        pntr = (dma_addr_t)(xpdmas[id].writeHWAddr);
+        printk(KERN_INFO "%s: Update PCIe Translation vector\n", DEVICE_NAME);
+        printk(KERN_INFO "%s: xpdmas[id].writeHWAddr 0x%08llX\n", DEVICE_NAME, pntr);
+        xpdma_writeReg(id, (PCIE_CTL_OFFSET + AXIBAR2PCIEBAR_1L), (pntr >> 0) & 0xFFFFFFFF);  // Lower 32 bit
+        xpdma_writeReg(id, (PCIE_CTL_OFFSET + AXIBAR2PCIEBAR_1U), (pntr >> 32) & 0xFFFFFFFF); // Upper 32 bit
+
+        pntr = (dma_addr_t)AXI_PCIE_DM_ADDR;
+        printk(KERN_INFO "%s: Set Source Address: 0x%08llX...\n", DEVICE_NAME, pntr);
+        // printk(KERN_INFO "%s: Set Source Address(low): 0x%08llX...\n", DEVICE_NAME, (pntr >> 0) & 0xFFFFFFFF);
+        // printk(KERN_INFO "%s: Set Source Address(high): 0x%08llX...\n", DEVICE_NAME, (pntr >> 32) & 0xFFFFFFFF);
+        xpdma_writeReg(id, (CDMA_OFFSET + CDMA_SRCADDR_OFFSET), (pntr >> 0) & 0xFFFFFFFF);
+        // xpdma_writeReg(id, (CDMA_OFFSET + CDMA_SRCADDR_MSB_OFFSET), (pntr >> 32) & 0xFFFFFFFF);
+    }
+
+    // 4. Write the desired transfer destination address to the Destination Address (DA) register. If the address
+    //    space selected is more than 32, then write the DA_MSB register also.
+    {
+        pntr = (dma_addr_t)AXI_DDR3_ADDR;
+        printk(KERN_INFO "%s: Set Destination Address: 0x%08llX...\n", DEVICE_NAME, pntr);
+        // printk(KERN_INFO "%s: Set Destination Address(low): 0x%08llX...\n", DEVICE_NAME, (pntr >> 0) & 0xFFFFFFFF);
+        // printk(KERN_INFO "%s: Set Destination Address(high): 0x%08llX...\n", DEVICE_NAME, (pntr >> 32) & 0xFFFFFFFF);
+        xpdma_writeReg(id, (CDMA_OFFSET + CDMA_DSTADDR_OFFSET), (pntr >> 0) & 0xFFFFFFFF);
+        // xpdma_writeReg(id, (CDMA_OFFSET + CDMA_DSTADDR_MSB_OFFSET), (pntr >> 32) & 0xFFFFFFFF);
+    }
+
+    // 5. Write the number of bytes to transfer to the CDMA Bytes to Transfer(BTT) register. Up to 8,388,607 bytes
+    //    can be specified for a single transfer (unless DataMover Lite is being used). Writing to the BTT register
+    //    also starts the transfer.
+    {
+        printk(KERN_INFO "%s: CDMA BTT: %lu bytes to transfer...\n", DEVICE_NAME, count);
+        xpdma_writeReg(id, (CDMA_OFFSET + CDMA_BTT_OFFSET), count);
+    }
+
+    // 6. Either poll the CMDASR.IDLE bit for assertion (CDMASR.IDLE == 1) or wait for the CDMA to generate an 
+    //    output interrupt (assumes CDMACR.IOC_IrqEn = 1).
+    {
+        while (!xpdma_isIdle(id))
+        {
+            printk(KERN_INFO "%s: CDMA is running!\n", DEVICE_NAME);
+            printk(KERN_INFO "%s: CMDA control & status, CONTROL_REG: 0x%08X, STATUS_REG 0x%08X\n",
+                   DEVICE_NAME,
+                   xpdma_readReg(id, CDMA_OFFSET + CDMA_CONTROL_OFFSET),
+                   xpdma_readReg(id, CDMA_OFFSET + CDMA_STATUS_OFFSET));
+        }
+    }
+
+    // 7. If interrrupt based, determine the interrupt source (transfer completed or an error has occurred).
+
+    // 8. Clear the CDMASR.IOC_Irq bit by writing a 1 to DMASR.IOC_Irq bit position.
+
+    // 9. Ready for another transfer. Go back to step 1.
+
+    // release DMA semaphore
+    up(&gSemDma);
+    printk(KERN_INFO "%s: CDMA is Done!\n", DEVICE_NAME);
+
+    return (SUCCESS);
+}
+
+ssize_t xpdma_read (struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
+{
+    int id = 0;
+    size_t pntr = 0;
+
+    // printk(KERN_INFO "%s: xpdma_readMem: ReadBuf Virt Addr = %lX Phy Addr = %lX.\n",
+    //        DEVICE_NAME, (size_t)xpdmas[id].readBuffer, (size_t)xpdmas[id].readHWAddr);
+
+    // set DMA semaphore
+    down(&gSemDma);
+
+    // 0. Set DMA to Simple DMA mode
+    xpdma_writeReg(id, CDMA_OFFSET + CDMA_CONTROL_OFFSET, 0);
+
+    // 1. Verify CMDASR.IDLE = 1.
+    if (!xpdma_isIdle(id))
+    {
+        printk(KERN_INFO "%s: CDMA is not idle\n", DEVICE_NAME);
+        xpdma_showInfo(id);
+        return (CRIT_ERR);
+    }
+
+    // 2. Program the CDMARCR.IOC_IrqEn bit to the desired state for interrupt generation on transfer completion.
+    //    Also set the error interrupt enable (CDMACR.ERR_IrqEn), if so desired.
+
+    // 3. Write the desired transfer source address to the Source Address (SA) regitser. The transfer data at the
+    //    source address must be valid and ready for transfer. If the address space selected is more than 32 bit,
+    //    write the SA_MSB register also.
+    {
+        // Update PCIe Translation vector
+        pntr = (size_t)(xpdmas[id].readHWAddr);
+        printk(KERN_INFO "%s: Update PCIe Translation vector\n", DEVICE_NAME);
+        printk(KERN_INFO "%s: xpdmas[id].readHWAddr 0x%016lX\n", DEVICE_NAME, pntr);
+        xpdma_writeReg(id, (PCIE_CTL_OFFSET + AXIBAR2PCIEBAR_1L), (pntr >> 0) & 0xFFFFFFFF);  // Lower 32 bit
+        xpdma_writeReg(id, (PCIE_CTL_OFFSET + AXIBAR2PCIEBAR_1U), (pntr >> 32) & 0xFFFFFFFF); // Upper 32 bit
+
+        pntr = (size_t)(AXI_DDR3_ADDR);
+        printk(KERN_INFO "%s: Set Source Address: 0x%08lX...\n", DEVICE_NAME, pntr);
+        xpdma_writeReg(id, (CDMA_OFFSET + CDMA_SRCADDR_OFFSET), (pntr >> 0) & 0xFFFFFFFF);
+        xpdma_writeReg(id, (CDMA_OFFSET + CDMA_SRCADDR_MSB_OFFSET), (pntr >> 32) & 0xFFFFFFFF);
+    }
+
+    // 4. Write the desired transfer destination address to the Destination Address (DA) register. If the address
+    //    space selected is more than 32, then write the DA_MSB register also.
+    {
+        pntr = (dma_addr_t)AXI_PCIE_DM_ADDR;
+        printk(KERN_INFO "%s: Set Destination Address: 0x%08lX...\n", DEVICE_NAME, pntr);
+        xpdma_writeReg(id, (CDMA_OFFSET + CDMA_DSTADDR_OFFSET), (pntr >> 0) & 0xFFFFFFFF);
+        xpdma_writeReg(id, (CDMA_OFFSET + CDMA_DSTADDR_MSB_OFFSET), (pntr >> 32) & 0xFFFFFFFF);
+    }
+
+    // 5. Write the number of bytes to transfer to the CDMA Bytes to Transfer(BTT) register. Up to 8,388,607 bytes
+    //    can be specified for a single transfer (unless DataMover Lite is being used). Writing to the BTT register
+    //    also starts the transfer.
+    {
+        printk(KERN_INFO "%s: CDMA BTT: %lu bytes to transfer...\n", DEVICE_NAME, count);
+        xpdma_writeReg(id, (CDMA_OFFSET + CDMA_BTT_OFFSET), count);
+    }
+
+    // 6. Either poll the CMDASR.IDLE bit for assertion (CDMASR.IDLE == 1) or wait for the CDMA to generate an
+    //    output interrupt (assumes CDMACR.IOC_IrqEn = 1).
+    {
+        while (!xpdma_isIdle(id))
+        {
+            printk(KERN_INFO "%s: CDMA is running!\n", DEVICE_NAME);
+            printk(KERN_INFO "%s: CMDA control & status, CONTROL_REG: 0x%08X, STATUS_REG 0x%08X\n",
+                   DEVICE_NAME,
+                   xpdma_readReg(id, CDMA_OFFSET + CDMA_CONTROL_OFFSET),
+                   xpdma_readReg(id, CDMA_OFFSET + CDMA_STATUS_OFFSET));
+        }
+    }
+
+    // 7. If interrrupt based, determine the interrupt source (transfer completed or an error has occurred).
+
+    // 8. Clear the CDMASR.IOC_Irq bit by writing a 1 to DMASR.IOC_Irq bit position.
+
+    // 9. Ready for another transfer. Go back to step 1.
+
+    printk(KERN_INFO "%s: CDMA is Done!\n", DEVICE_NAME);
+
+    // copy the data to user space.
+    if ( copy_to_user(buf, xpdmas[id].readBuffer, count) )  {
+        printk("KERN_INFO%s: xpdma_readMem: Failed copy to user.\n", DEVICE_NAME);
+        return (CRIT_ERR);
+    }
+    printk(KERN_INFO "%s: XPCIe_Read: %lu bytes(%s) have been read...\n", DEVICE_NAME, count, xpdmas[id].readBuffer);
+
+    // release DMA semaphore
+    up(&gSemDma);
+
+    return (SUCCESS);
+}
+
+>>>>>>> add some message print
 long xpdma_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 {
     u32 regx = 0;
@@ -263,7 +479,10 @@ long xpdma_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
         case IOCTL_SEND:
             // Send data from Host system to AXI CDMA
             id = (*(cdmaBuffer_t *)arg).id;
+<<<<<<< HEAD
             xpdma_debug(id, "IOCTL_SEND 0"); // this is OK
+=======
+>>>>>>> add some message print
             // printk(KERN_INFO"%s: FPGA %d\n", DEVICE_NAME, (*(cdmaBuffer_t *)arg).id);
             printk(KERN_INFO"%s: Send Data size 0x%X\n", DEVICE_NAME, (*(cdmaBuffer_t *)arg).count);
             printk(KERN_INFO"%s: Send Data address 0x%X\n", DEVICE_NAME, (*(cdmaBuffer_t *)arg).addr);
@@ -308,30 +527,34 @@ void xpdma_showInfo (int id)
         return;
     }
 
-    printk(KERN_INFO"%s: INFORMATION\n", DEVICE_NAME);
-    printk(KERN_INFO"%s: HOST REGIONS:\n", DEVICE_NAME);
-    printk(KERN_INFO"%s: xpdmas[id].baseVirt: 0x%lX\n", DEVICE_NAME, (size_t) xpdmas[id].baseVirt);
-    printk(KERN_INFO"%s: xpdmas[id].readBuffer address: 0x%lX\n", DEVICE_NAME, (size_t) xpdmas[id].readBuffer);
-    printk(KERN_INFO"%s: xpdmas[id].readBuffer: %s\n", DEVICE_NAME, xpdmas[id].readBuffer);
-    printk(KERN_INFO"%s: xpdmas[id].writeBuffer address: 0x%lX\n", DEVICE_NAME, (size_t) xpdmas[id].writeBuffer);
-    printk(KERN_INFO"%s: xpdmas[id].writeBuffer: %s\n", DEVICE_NAME, xpdmas[id].writeBuffer);
-    printk(KERN_INFO"%s: xpdmas[id].descChain:          0x%lX\n", DEVICE_NAME, (size_t) xpdmas[id].descChain);
-    printk(KERN_INFO"%s: xpdmas[id].descChainLength:   0x%lX\n", DEVICE_NAME, (size_t) xpdmas[id].descChainLength);
+    printk(KERN_INFO "%s: INFORMATION\n", DEVICE_NAME);
+    printk(KERN_INFO "%s: HOST REGIONS:\n", DEVICE_NAME);
+    printk(KERN_INFO "%s: xpdmas[id].baseVirt:            0x%lX\n", DEVICE_NAME, (size_t)xpdmas[id].baseVirt);
+    printk(KERN_INFO "%s: xpdmas[id].baseHdwr:            0x%lX\n", DEVICE_NAME, (size_t)xpdmas[id].baseHdwr);
+    printk(KERN_INFO "%s: xpdmas[id].baseLen:             %lu\n", DEVICE_NAME, xpdmas[id].baseLen);
+    printk(KERN_INFO "%s: xpdmas[id].readHWAddr:          0x%lX\n", DEVICE_NAME, (size_t)xpdmas[id].readHWAddr);
+    printk(KERN_INFO "%s: xpdmas[id].readBuffer address:  0x%lX\n", DEVICE_NAME, (size_t)xpdmas[id].readBuffer);
+    printk(KERN_INFO "%s: xpdmas[id].readBuffer:          %s\n", DEVICE_NAME, xpdmas[id].readBuffer);
+    printk(KERN_INFO "%s: xpdmas[id].writeHWAddr:         0x%lX\n", DEVICE_NAME, (size_t)xpdmas[id].writeHWAddr);
+    printk(KERN_INFO "%s: xpdmas[id].writeBuffer address: 0x%lX\n", DEVICE_NAME, (size_t)xpdmas[id].writeBuffer);
+    printk(KERN_INFO "%s: xpdmas[id].writeBuffer:         %s\n", DEVICE_NAME, xpdmas[id].writeBuffer);
+    printk(KERN_INFO "%s: xpdmas[id].descChain:           0x%lX\n", DEVICE_NAME, (size_t)xpdmas[id].descChain);
+    printk(KERN_INFO "%s: xpdmas[id].descChainLength:     0x%lX\n", DEVICE_NAME, (size_t)xpdmas[id].descChainLength);
 
-    printk(KERN_INFO"%s: REGISTERS:\n", DEVICE_NAME);
+    printk(KERN_INFO "%s: REGISTERS:\n", DEVICE_NAME);
 
-    printk(KERN_INFO"%s: BRAM:\n", DEVICE_NAME);
+    printk(KERN_INFO "%s: BRAM:\n", DEVICE_NAME);
     for (c = 0; c <= 8*4; c += 4)
-        printk(KERN_INFO"%s: 0x%08X: 0x%08X\n", DEVICE_NAME, BRAM_OFFSET + c, xpdma_readReg(id, BRAM_OFFSET + c));
+        printk(KERN_INFO "%s: 0x%08X: 0x%08X\n", DEVICE_NAME, BRAM_OFFSET + c, xpdma_readReg(id, BRAM_OFFSET + c));
 
-    printk(KERN_INFO"%s: PCIe CTL:\n", DEVICE_NAME);
-    printk(KERN_INFO"%s: 0x%08X: 0x%08X\n", DEVICE_NAME, PCIE_CTL_OFFSET, xpdma_readReg(id, PCIE_CTL_OFFSET));
-    for (c = 0x208; c <= 0x234 ; c += 4)
-        printk(KERN_INFO"%s: 0x%08X: 0x%08X\n", DEVICE_NAME, PCIE_CTL_OFFSET + c, xpdma_readReg(id, PCIE_CTL_OFFSET + c));
+    printk(KERN_INFO "%s: PCIe CTL:\n", DEVICE_NAME);
+    printk(KERN_INFO "%s: 0x%08X: 0x%08X\n", DEVICE_NAME, PCIE_CTL_OFFSET, xpdma_readReg(id, PCIE_CTL_OFFSET));
+    for (c = 0x208; c <= 0x234; c += 4)
+        printk(KERN_INFO "%s: 0x%08X: 0x%08X\n", DEVICE_NAME, PCIE_CTL_OFFSET + c, xpdma_readReg(id, PCIE_CTL_OFFSET + c));
 
-    printk(KERN_INFO"%s: CDMA CTL:\n", DEVICE_NAME);
-    for (c = 0; c <= 0x28; c += 4)
-        printk(KERN_INFO"%s: 0x%08X: 0x%08X\n", DEVICE_NAME, CDMA_OFFSET + c, xpdma_readReg(id, CDMA_OFFSET + c));
+    printk(KERN_INFO "%s: CDMA CTL:\n", DEVICE_NAME);
+    for (c = 0x00; c <= 0x28; c += 4)
+        printk(KERN_INFO "%s: 0x%08X: 0x%08X\n", DEVICE_NAME, CDMA_OFFSET + c, xpdma_readReg(id, CDMA_OFFSET + c));
 }
 
 ssize_t create_desc_chain(int id, int direction, u32 size, u32 addr)
@@ -722,11 +945,11 @@ static int xpdma_getResource(int id)
         printk(KERN_WARNING"%s: getResource: Base Address not set.\n", DEVICE_NAME);
         return (CRIT_ERR);
     }
-//     printk(KERN_INFO"%s: getResource: Base hw val %X\n", DEVICE_NAME, (unsigned int) xpdmas[id].baseHdwr);
+    printk(KERN_INFO "%s: getResource: Base hw val %X\n", DEVICE_NAME, (unsigned int)xpdmas[id].baseHdwr);
 
     // Get the Base Address Length
     xpdmas[id].baseLen = pci_resource_len(xpdmas[id].dev, 0);
-//     printk(KERN_INFO"%s: getResource: Base hw len %d\n", DEVICE_NAME, (unsigned int) xpdmas[id].baseLen);
+    printk(KERN_INFO "%s: getResource: Base hw len %d\n", DEVICE_NAME, (unsigned int)xpdmas[id].baseLen);
 
     // Get Virtual HW address
     xpdmas[id].baseVirt = ioremap(xpdmas[id].baseHdwr, xpdmas[id].baseLen);
@@ -734,7 +957,7 @@ static int xpdma_getResource(int id)
         printk(KERN_WARNING"%s: getResource: Could not remap memory.\n", DEVICE_NAME);
         return (CRIT_ERR);
     }
-//    printk(KERN_INFO"%s: Init: Virt HW address %lX\n", DEVICE_NAME, (size_t) xpdmas[id].baseVirt);
+    printk(KERN_INFO "%s: Init: Virt HW address %lX\n", DEVICE_NAME, (size_t)xpdmas[id].baseVirt);
 
     // Check the memory region to see if it is in use
     if (!request_mem_region(xpdmas[id].baseHdwr, xpdmas[id].baseLen, "Xilinx_PCIe_CDMA_Driver")) {

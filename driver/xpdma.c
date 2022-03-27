@@ -183,15 +183,19 @@ uint32_t xpdma_readReg(xpdma_t *fpga, uint32_t addr)
     return data.value;
 }
 
-/*void xpdma_read(xpdma_t *fpga, void *data, unsigned int count)
+void xpdma_read(xpdma_t *fpga, void *data, unsigned int count)
 {
+    printf("xpdma_read called!\n");
     read(fpga->fd, data, count);
+    printf("xpdma_read: %u bytes have been read from fpga...\n", count);
 }
 
 void xpdma_write(xpdma_t *fpga, void *data, unsigned int count)
 {
+    printf("xpdma_write called!\n");
     write(fpga->fd, data, count);
-}*/
+    printf("xpdma_write: %u bytes have been written to fpga...\n", count);
+}
 
 void xpdma_test_sg(xpdma_t *fpga, void *data, unsigned int count)
 {
