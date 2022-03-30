@@ -47,15 +47,6 @@ MODULE_AUTHOR("Strezhik Iurii");
  * |31------------------------------------------0|
  * |<------------Source Address[31:0]----------->|
  **/
-<<<<<<< HEAD
-#define CDMA_DSTADDR_OFFSET 0x20         // Dest Address Register
-/**
- * DA: CMDA Destination Address - Offset 20h
- * This register provides the Desination Address for Simple DMA transfer by AXI CMDA.
- * |31------------------------------------------0|
- * |<--------Destination Address[31:0]---------->|
- **/
-=======
 #define CDMA_SRCADDR_MSB_OFFSET 0x1C    // MSB of Source Address Register
 /**
  * DA: CMDA Destination Address - Offset 20h
@@ -79,7 +70,6 @@ MODULE_AUTHOR("Strezhik Iurii");
  * |31------------26|25-------------------------0|
  * |<------RSVD---->|<----------BTT[25:0]------->|                    
  **/
->>>>>>> add some message print
 #define CDMA_BTT_OFFSET     0x28         // Bytes to transfer Register
 
 #define AXI_PCIE_DM_ADDR    0x80000000   // AXI:BAR1 Address
@@ -141,11 +131,7 @@ MODULE_AUTHOR("Strezhik Iurii");
 #define CDMA_RESET_LOOP	    1000000      // Reset timeout counter limit
 #define SG_TRANSFER_LOOP    1000000      // Scatter Gather Transfer timeout counter limit
 
-<<<<<<< HEAD
 // #define XPDMA_DEBUG 1   // debug
-=======
-#define XPDMA_DEBUG 1   // debug
->>>>>>> add some message print
 
 // Scatter Gather Transfer descriptor
 typedef struct {
@@ -438,7 +424,6 @@ ssize_t xpdma_read (struct file *filp, char __user *buf, size_t count, loff_t *f
     return (SUCCESS);
 }
 
->>>>>>> add some message print
 long xpdma_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
 {
     u32 regx = 0;
@@ -479,10 +464,7 @@ long xpdma_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
         case IOCTL_SEND:
             // Send data from Host system to AXI CDMA
             id = (*(cdmaBuffer_t *)arg).id;
-<<<<<<< HEAD
             xpdma_debug(id, "IOCTL_SEND 0"); // this is OK
-=======
->>>>>>> add some message print
             // printk(KERN_INFO"%s: FPGA %d\n", DEVICE_NAME, (*(cdmaBuffer_t *)arg).id);
             printk(KERN_INFO"%s: Send Data size 0x%X\n", DEVICE_NAME, (*(cdmaBuffer_t *)arg).count);
             printk(KERN_INFO"%s: Send Data address 0x%X\n", DEVICE_NAME, (*(cdmaBuffer_t *)arg).addr);

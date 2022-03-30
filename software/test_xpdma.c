@@ -7,7 +7,7 @@
 #include <stdlib.h> // for rand()
 
 // #define TEST_SIZE   1024*1024*1024 // 1GB test data
-#define TEST_SIZE   (1024*1024*8) // 1MB test data
+#define TEST_SIZE   (1024*1024*4) // 1MB test data
 // #define TEST_SIZE   (16) // 16B test data
 #define TEST_ADDR   0 // offset of DDR start address
 #define BOARD_ID    0 // board number (for multiple boards)
