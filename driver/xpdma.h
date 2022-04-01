@@ -40,9 +40,11 @@ void xpdma_setCfgReg(xpdma_t *fpga, uint32_t regNumber, uint32_t data);
  */
 uint32_t xpdma_getCfgReg(xpdma_t *fpga, uint32_t regNumber);
 
-
 void xpdma_writeReg(xpdma_t *fpga, uint32_t addr, uint32_t value);
 uint32_t xpdma_readReg(xpdma_t *fpga, uint32_t addr);
+
+void xpdma_read(xpdma_t *fpga, void *data, unsigned int count);
+void xpdma_write(xpdma_t *fpga, void *data, unsigned int count);
 
 #ifdef __cplusplus
 }
