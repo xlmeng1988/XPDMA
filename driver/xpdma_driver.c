@@ -129,7 +129,10 @@ MODULE_AUTHOR("Strezhik Iurii");
 #define AXIBAR2PCIEBAR_1L   0x214        // AXI:BAR1 Lower Address Translation (bits [31:0])
 
 #define CDMA_RESET_LOOP	    1000000      // Reset timeout counter limit
-#define SG_TRANSFER_LOOP    1000000      // Scatter Gather Transfer timeout counter limit
+#define CDMA_TRANSFER_LOOP    1000000      // Scatter Gather Transfer timeout counter limit
+
+#define DMA_SIMPLE_MODE    0
+#define DMA_SG_MODE        1
 
 // #define XPDMA_DEBUG 1   // debug
 
@@ -228,41 +231,42 @@ static inline void xpdma_debug(int id, const char *info)
     printk(KERN_INFO "%s: -------------------- id, %d, %s end   --------------------\n", DEVICE_NAME, id, info);
 #endif
 }
-ssize_t xpdma_write (struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
+
+static int simple_operation(int id, int direction, size_t count, u32 addr)
 {
-    int id = 0;
     dma_addr_t pntr = 0;
-//    dma_addr_t dma_addr;
+    dma_addr_t src_pntr = 0;
+    dma_addr_t dst_pntr = 0;
+    size_t delayTime = 0;
+    // u32 countBuf = count;
 
-    // xpdma_debug(id, "xpdma_write 0");
-
-    if ( (count % 4) != 0 )  {
-        printk(KERN_WARNING "%s: xpdma_writeMem: Buffer length not dword aligned.\n", DEVICE_NAME);
+    if (PCI_DMA_FROMDEVICE == direction)
+    {
+        pntr = xpdmas[id].readHWAddr;
+        src_pntr = (dma_addr_t)AXI_DDR3_ADDR;
+        dst_pntr = (dma_addr_t)AXI_PCIE_DM_ADDR;
+    }
+    else if (PCI_DMA_TODEVICE == direction)
+    {
+        pntr = xpdmas[id].writeHWAddr;
+        src_pntr = (dma_addr_t)AXI_PCIE_DM_ADDR;
+        dst_pntr = (dma_addr_t)AXI_DDR3_ADDR;
+    }
+    else
+    {
+        printk(KERN_INFO "%s: Write Translation Vectors to BRAM error: unknown direction\n", DEVICE_NAME);
         return (CRIT_ERR);
     }
-    // set DMA semaphore
-    down(&gSemDma);
 
-    // Now it is safe to copy the data from user space.
-    if ( copy_from_user(xpdmas[id].writeBuffer, buf, count) )  {
-        printk(KERN_INFO"%s: xpdma_writeMem: Failed copy from user.\n", DEVICE_NAME);
-        return (CRIT_ERR);
-    }
-    printk(KERN_INFO "%s: copy_from_user(%s).\n", DEVICE_NAME, xpdmas[id].writeBuffer);
-
-    printk(KERN_INFO"%s: xpdma_writeMem: WriteBuf Virt Addr = %lX Phy Addr = %lX.\n",
-           DEVICE_NAME, (size_t)xpdmas[id].writeBuffer, (size_t)xpdmas[id].writeHWAddr);
-    printk(KERN_INFO"%s: XPCIe_Write: %lu bytes have been written...\n", DEVICE_NAME, count);
-
-    // 0. Set DMA to Simple DMA mode
-    xpdma_writeReg(id, CDMA_OFFSET + CDMA_CONTROL_OFFSET, 0);
-
-    // 1. Verify CMDASR.IDLE = 1.
-    if (!xpdma_isIdle(id)) {
-        printk(KERN_INFO "%s: CDMA is not idle\n", DEVICE_NAME);
+    // 0. Verify CMDASR.IDLE = 1.
+    if (!xpdma_isIdle(id)){
+        printk(KERN_INFO"%s: CDMA is not idle\n", DEVICE_NAME);
         xpdma_showInfo(id);
         return (CRIT_ERR);
     }
+
+    // 1. Set DMA to Simple DMA mode
+    xpdma_writeReg(id, CDMA_OFFSET + CDMA_CONTROL_OFFSET, 0);
 
     // 2. Program the CDMARCR.IOC_IrqEn bit to the desired state for interrupt generation on transfer completion.
     //    Also set the error interrupt enable (CDMACR.ERR_IrqEn), if so desired.
@@ -271,157 +275,60 @@ ssize_t xpdma_write (struct file *filp, const char __user *buf, size_t count, lo
     //    source address must be valid and ready for transfer. If the address space selected is more than 32 bit,
     //    write the SA_MSB register also.
         {
-        // Update PCIe Translation vector
-        pntr = (dma_addr_t)(xpdmas[id].writeHWAddr);
-        printk(KERN_INFO "%s: Update PCIe Translation vector\n", DEVICE_NAME);
-        printk(KERN_INFO "%s: xpdmas[id].writeHWAddr 0x%08llX\n", DEVICE_NAME, pntr);
+        // 3.1 Update PCIe Translation vector
+        printk(KERN_INFO "%s: Update PCIe Translation vector: 0x%08llX\n", DEVICE_NAME, pntr);
         xpdma_writeReg(id, (PCIE_CTL_OFFSET + AXIBAR2PCIEBAR_1L), (pntr >> 0) & 0xFFFFFFFF);  // Lower 32 bit
         xpdma_writeReg(id, (PCIE_CTL_OFFSET + AXIBAR2PCIEBAR_1U), (pntr >> 32) & 0xFFFFFFFF); // Upper 32 bit
 
-        pntr = (dma_addr_t)AXI_PCIE_DM_ADDR;
-        printk(KERN_INFO "%s: Set Source Address: 0x%08llX...\n", DEVICE_NAME, pntr);
-        // printk(KERN_INFO "%s: Set Source Address(low): 0x%08llX...\n", DEVICE_NAME, (pntr >> 0) & 0xFFFFFFFF);
-        // printk(KERN_INFO "%s: Set Source Address(high): 0x%08llX...\n", DEVICE_NAME, (pntr >> 32) & 0xFFFFFFFF);
-        xpdma_writeReg(id, (CDMA_OFFSET + CDMA_SRCADDR_OFFSET), (pntr >> 0) & 0xFFFFFFFF);
-        // xpdma_writeReg(id, (CDMA_OFFSET + CDMA_SRCADDR_MSB_OFFSET), (pntr >> 32) & 0xFFFFFFFF);
+        printk(KERN_INFO "%s: Set Source Address: 0x%08llX...\n", DEVICE_NAME, src_pntr);
+        printk(KERN_INFO "%s: Set Source Address(low): 0x%08llX...\n", DEVICE_NAME, (src_pntr >> 0) & 0xFFFFFFFF);
+        printk(KERN_INFO "%s: Set Source Address(high): 0x%08llX...\n", DEVICE_NAME, (src_pntr >> 32) & 0xFFFFFFFF);
+        xpdma_writeReg(id, (CDMA_OFFSET + CDMA_SRCADDR_OFFSET), (src_pntr >> 0) & 0xFFFFFFFF);
+        xpdma_writeReg(id, (CDMA_OFFSET + CDMA_SRCADDR_MSB_OFFSET), (src_pntr >> 32) & 0xFFFFFFFF);
     }
-
     // 4. Write the desired transfer destination address to the Destination Address (DA) register. If the address
     //    space selected is more than 32, then write the DA_MSB register also.
     {
-        pntr = (dma_addr_t)AXI_DDR3_ADDR;
-        printk(KERN_INFO "%s: Set Destination Address: 0x%08llX...\n", DEVICE_NAME, pntr);
-        // printk(KERN_INFO "%s: Set Destination Address(low): 0x%08llX...\n", DEVICE_NAME, (pntr >> 0) & 0xFFFFFFFF);
-        // printk(KERN_INFO "%s: Set Destination Address(high): 0x%08llX...\n", DEVICE_NAME, (pntr >> 32) & 0xFFFFFFFF);
-        xpdma_writeReg(id, (CDMA_OFFSET + CDMA_DSTADDR_OFFSET), (pntr >> 0) & 0xFFFFFFFF);
-        // xpdma_writeReg(id, (CDMA_OFFSET + CDMA_DSTADDR_MSB_OFFSET), (pntr >> 32) & 0xFFFFFFFF);
+        printk(KERN_INFO "%s: Set Destination Address: 0x%08llX...\n", DEVICE_NAME, dst_pntr);
+        printk(KERN_INFO "%s: Set Destination Address(low): 0x%08llX...\n", DEVICE_NAME, (dst_pntr >> 0) & 0xFFFFFFFF);
+        printk(KERN_INFO "%s: Set Destination Address(high): 0x%08llX...\n", DEVICE_NAME, (dst_pntr >> 32) & 0xFFFFFFFF);
+        xpdma_writeReg(id, (CDMA_OFFSET + CDMA_DSTADDR_OFFSET), (dst_pntr >> 0) & 0xFFFFFFFF);
+        xpdma_writeReg(id, (CDMA_OFFSET + CDMA_DSTADDR_MSB_OFFSET), (dst_pntr >> 32) & 0xFFFFFFFF);
     }
 
     // 5. Write the number of bytes to transfer to the CDMA Bytes to Transfer(BTT) register. Up to 8,388,607 bytes
     //    can be specified for a single transfer (unless DataMover Lite is being used). Writing to the BTT register
     //    also starts the transfer.
-    {
-        printk(KERN_INFO "%s: CDMA BTT: %lu bytes to transfer...\n", DEVICE_NAME, count);
-        xpdma_writeReg(id, (CDMA_OFFSET + CDMA_BTT_OFFSET), count);
-    }
+    printk(KERN_INFO "%s: CDMA BTT: %lu bytes to transfer...\n", DEVICE_NAME, count);
+    xpdma_writeReg(id, (CDMA_OFFSET + CDMA_BTT_OFFSET), count);
 
     // 6. Either poll the CMDASR.IDLE bit for assertion (CDMASR.IDLE == 1) or wait for the CDMA to generate an 
     //    output interrupt (assumes CDMACR.IOC_IrqEn = 1).
     {
-        while (!xpdma_isIdle(id))
+        delayTime = CDMA_TRANSFER_LOOP;
+        while (delayTime-- && !xpdma_isIdle(id))
         {
             printk(KERN_INFO "%s: CDMA is running!\n", DEVICE_NAME);
-            printk(KERN_INFO "%s: CMDA control & status, CONTROL_REG: 0x%08X, STATUS_REG 0x%08X\n",
-                   DEVICE_NAME,
-                   xpdma_readReg(id, CDMA_OFFSET + CDMA_CONTROL_OFFSET),
-                   xpdma_readReg(id, CDMA_OFFSET + CDMA_STATUS_OFFSET));
+            // printk(KERN_INFO "%s: CMDA control & status, CONTROL_REG: 0x%08X, STATUS_REG 0x%08X\n",
+            //        DEVICE_NAME,
+            //        xpdma_readReg(id, CDMA_OFFSET + CDMA_CONTROL_OFFSET),
+            //        xpdma_readReg(id, CDMA_OFFSET + CDMA_STATUS_OFFSET));
+            udelay(10); // TODO: can it be less?
         }
-    }
 
-    // 7. If interrrupt based, determine the interrupt source (transfer completed or an error has occurred).
-
-    // 8. Clear the CDMASR.IOC_Irq bit by writing a 1 to DMASR.IOC_Irq bit position.
-
-    // 9. Ready for another transfer. Go back to step 1.
-
-    // release DMA semaphore
-    up(&gSemDma);
-    printk(KERN_INFO "%s: CDMA is Done!\n", DEVICE_NAME);
-
-    return (SUCCESS);
-}
-
-ssize_t xpdma_read (struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
-{
-    int id = 0;
-    size_t pntr = 0;
-
-    // printk(KERN_INFO "%s: xpdma_readMem: ReadBuf Virt Addr = %lX Phy Addr = %lX.\n",
-    //        DEVICE_NAME, (size_t)xpdmas[id].readBuffer, (size_t)xpdmas[id].readHWAddr);
-
-    // set DMA semaphore
-    down(&gSemDma);
-
-    // 0. Set DMA to Simple DMA mode
-    xpdma_writeReg(id, CDMA_OFFSET + CDMA_CONTROL_OFFSET, 0);
-
-    // 1. Verify CMDASR.IDLE = 1.
-    if (!xpdma_isIdle(id))
-    {
-        printk(KERN_INFO "%s: CDMA is not idle\n", DEVICE_NAME);
-        xpdma_showInfo(id);
-        return (CRIT_ERR);
-    }
-
-    // 2. Program the CDMARCR.IOC_IrqEn bit to the desired state for interrupt generation on transfer completion.
-    //    Also set the error interrupt enable (CDMACR.ERR_IrqEn), if so desired.
-
-    // 3. Write the desired transfer source address to the Source Address (SA) regitser. The transfer data at the
-    //    source address must be valid and ready for transfer. If the address space selected is more than 32 bit,
-    //    write the SA_MSB register also.
-    {
-        // Update PCIe Translation vector
-        pntr = (size_t)(xpdmas[id].readHWAddr);
-        printk(KERN_INFO "%s: Update PCIe Translation vector\n", DEVICE_NAME);
-        printk(KERN_INFO "%s: xpdmas[id].readHWAddr 0x%016lX\n", DEVICE_NAME, pntr);
-        xpdma_writeReg(id, (PCIE_CTL_OFFSET + AXIBAR2PCIEBAR_1L), (pntr >> 0) & 0xFFFFFFFF);  // Lower 32 bit
-        xpdma_writeReg(id, (PCIE_CTL_OFFSET + AXIBAR2PCIEBAR_1U), (pntr >> 32) & 0xFFFFFFFF); // Upper 32 bit
-
-        pntr = (size_t)(AXI_DDR3_ADDR);
-        printk(KERN_INFO "%s: Set Source Address: 0x%08lX...\n", DEVICE_NAME, pntr);
-        xpdma_writeReg(id, (CDMA_OFFSET + CDMA_SRCADDR_OFFSET), (pntr >> 0) & 0xFFFFFFFF);
-        xpdma_writeReg(id, (CDMA_OFFSET + CDMA_SRCADDR_MSB_OFFSET), (pntr >> 32) & 0xFFFFFFFF);
-    }
-
-    // 4. Write the desired transfer destination address to the Destination Address (DA) register. If the address
-    //    space selected is more than 32, then write the DA_MSB register also.
-    {
-        pntr = (dma_addr_t)AXI_PCIE_DM_ADDR;
-        printk(KERN_INFO "%s: Set Destination Address: 0x%08lX...\n", DEVICE_NAME, pntr);
-        xpdma_writeReg(id, (CDMA_OFFSET + CDMA_DSTADDR_OFFSET), (pntr >> 0) & 0xFFFFFFFF);
-        xpdma_writeReg(id, (CDMA_OFFSET + CDMA_DSTADDR_MSB_OFFSET), (pntr >> 32) & 0xFFFFFFFF);
-    }
-
-    // 5. Write the number of bytes to transfer to the CDMA Bytes to Transfer(BTT) register. Up to 8,388,607 bytes
-    //    can be specified for a single transfer (unless DataMover Lite is being used). Writing to the BTT register
-    //    also starts the transfer.
-    {
-        printk(KERN_INFO "%s: CDMA BTT: %lu bytes to transfer...\n", DEVICE_NAME, count);
-        xpdma_writeReg(id, (CDMA_OFFSET + CDMA_BTT_OFFSET), count);
-    }
-
-    // 6. Either poll the CMDASR.IDLE bit for assertion (CDMASR.IDLE == 1) or wait for the CDMA to generate an
-    //    output interrupt (assumes CDMACR.IOC_IrqEn = 1).
-    {
-        while (!xpdma_isIdle(id))
+        if (!xpdma_isIdle(id))
         {
-            printk(KERN_INFO "%s: CDMA is running!\n", DEVICE_NAME);
-            printk(KERN_INFO "%s: CMDA control & status, CONTROL_REG: 0x%08X, STATUS_REG 0x%08X\n",
-                   DEVICE_NAME,
-                   xpdma_readReg(id, CDMA_OFFSET + CDMA_CONTROL_OFFSET),
-                   xpdma_readReg(id, CDMA_OFFSET + CDMA_STATUS_OFFSET));
+            printk(KERN_WARNING "%s: Simple DMA Operation error: Timeout Error\n", DEVICE_NAME);
+            return (CRIT_ERR);
         }
+
+        // 7. If interrrupt based, determine the interrupt source (transfer completed or an error has occurred).
+
+        // 8. Clear the CDMASR.IOC_Irq bit by writing a 1 to DMASR.IOC_Irq bit position.
+
+        // 9. Ready for another transfer. Go back to step 1.
+        return SUCCESS;
     }
-
-    // 7. If interrrupt based, determine the interrupt source (transfer completed or an error has occurred).
-
-    // 8. Clear the CDMASR.IOC_Irq bit by writing a 1 to DMASR.IOC_Irq bit position.
-
-    // 9. Ready for another transfer. Go back to step 1.
-
-    printk(KERN_INFO "%s: CDMA is Done!\n", DEVICE_NAME);
-
-    // copy the data to user space.
-    if ( copy_to_user(buf, xpdmas[id].readBuffer, count) )  {
-        printk("KERN_INFO%s: xpdma_readMem: Failed copy to user.\n", DEVICE_NAME);
-        return (CRIT_ERR);
-    }
-    printk(KERN_INFO "%s: XPCIe_Read: %lu bytes(%s) have been read...\n", DEVICE_NAME, count, xpdmas[id].readBuffer);
-
-    // release DMA semaphore
-    up(&gSemDma);
-
-    return (SUCCESS);
 }
 
 long xpdma_ioctl (struct file *filp, unsigned int cmd, unsigned long arg)
@@ -511,17 +418,17 @@ void xpdma_showInfo (int id)
 
     printk(KERN_INFO "%s: INFORMATION\n", DEVICE_NAME);
     printk(KERN_INFO "%s: HOST REGIONS:\n", DEVICE_NAME);
-    printk(KERN_INFO "%s: xpdmas[id].baseVirt:            0x%lX\n", DEVICE_NAME, (size_t)xpdmas[id].baseVirt);
-    printk(KERN_INFO "%s: xpdmas[id].baseHdwr:            0x%lX\n", DEVICE_NAME, (size_t)xpdmas[id].baseHdwr);
+    printk(KERN_INFO "%s: xpdmas[id].baseVirt:            0x%016lX\n", DEVICE_NAME, (size_t)xpdmas[id].baseVirt);
+    printk(KERN_INFO "%s: xpdmas[id].baseHdwr:            0x%016lX\n", DEVICE_NAME, (size_t)xpdmas[id].baseHdwr);
     printk(KERN_INFO "%s: xpdmas[id].baseLen:             %lu\n", DEVICE_NAME, xpdmas[id].baseLen);
-    printk(KERN_INFO "%s: xpdmas[id].readHWAddr:          0x%lX\n", DEVICE_NAME, (size_t)xpdmas[id].readHWAddr);
-    printk(KERN_INFO "%s: xpdmas[id].readBuffer address:  0x%lX\n", DEVICE_NAME, (size_t)xpdmas[id].readBuffer);
+    printk(KERN_INFO "%s: xpdmas[id].readHWAddr:          0x%016lX\n", DEVICE_NAME, (size_t)xpdmas[id].readHWAddr);
+    printk(KERN_INFO "%s: xpdmas[id].readBuffer address:  0x%016lX\n", DEVICE_NAME, (size_t)xpdmas[id].readBuffer);
     printk(KERN_INFO "%s: xpdmas[id].readBuffer:          %s\n", DEVICE_NAME, xpdmas[id].readBuffer);
-    printk(KERN_INFO "%s: xpdmas[id].writeHWAddr:         0x%lX\n", DEVICE_NAME, (size_t)xpdmas[id].writeHWAddr);
-    printk(KERN_INFO "%s: xpdmas[id].writeBuffer address: 0x%lX\n", DEVICE_NAME, (size_t)xpdmas[id].writeBuffer);
+    printk(KERN_INFO "%s: xpdmas[id].writeHWAddr:         0x%016lX\n", DEVICE_NAME, (size_t)xpdmas[id].writeHWAddr);
+    printk(KERN_INFO "%s: xpdmas[id].writeBuffer address: 0x%016lX\n", DEVICE_NAME, (size_t)xpdmas[id].writeBuffer);
     printk(KERN_INFO "%s: xpdmas[id].writeBuffer:         %s\n", DEVICE_NAME, xpdmas[id].writeBuffer);
-    printk(KERN_INFO "%s: xpdmas[id].descChain:           0x%lX\n", DEVICE_NAME, (size_t)xpdmas[id].descChain);
-    printk(KERN_INFO "%s: xpdmas[id].descChainLength:     0x%lX\n", DEVICE_NAME, (size_t)xpdmas[id].descChainLength);
+    printk(KERN_INFO "%s: xpdmas[id].descChain:           0x%016lX\n", DEVICE_NAME, (size_t)xpdmas[id].descChain);
+    printk(KERN_INFO "%s: xpdmas[id].descChainLength:     0x%016lX\n", DEVICE_NAME, (size_t)xpdmas[id].descChainLength);
 
     printk(KERN_INFO "%s: REGISTERS:\n", DEVICE_NAME);
 
@@ -763,7 +670,7 @@ static int sg_operation(int id, int direction, size_t count, u32 addr)
     // wait for Scatter Gather operation...
 //    printk(KERN_INFO"%s: Scatter Gather must be started!\n", DEVICE_NAME);
 
-    delayTime = SG_TRANSFER_LOOP;
+    delayTime = CDMA_TRANSFER_LOOP;
     while (delayTime) {
         delayTime--;
         udelay(10);// TODO: can it be less?
@@ -771,7 +678,7 @@ static int sg_operation(int id, int direction, size_t count, u32 addr)
         status = (xpdmas[id].descChain + 2 * xpdmas[id].descChainLength - 1)->status;
 
 //        printk(KERN_INFO
-//        "%s: Scatter Gather Operation: loop counter %08X\n", DEVICE_NAME, SG_TRANSFER_LOOP - delayTime);
+//        "%s: Scatter Gather Operation: loop counter %08X\n", DEVICE_NAME, CDMA_TRANSFER_LOOP - delayTime);
 
 //        printk(KERN_INFO
 //        "%s: Scatter Gather Operation: status 0x%08X\n", DEVICE_NAME, status);
@@ -813,7 +720,7 @@ static int sg_operation(int id, int direction, size_t count, u32 addr)
     return (CRIT_ERR);
 }
 
-static int sg_block(int id, int direction, void *data, size_t count, u32 addr)
+static int dma_block(int id, int mode, int direction, void *data, size_t count, u32 addr)
 {
     size_t unsended = count;
     char *curData = data;
@@ -821,7 +728,7 @@ static int sg_block(int id, int direction, void *data, size_t count, u32 addr)
     u32 btt = BUF_SIZE;
 
     if ( (addr % 4) != 0 )  {
-        printk(KERN_WARNING"%s: Scatter Gather: Address %08X not dword aligned.\n", DEVICE_NAME, addr);
+        printk(KERN_WARNING"%s: DMA: Address %08X not dword aligned.\n", DEVICE_NAME, addr);
         return (CRIT_ERR);
     }
 
@@ -833,16 +740,28 @@ static int sg_block(int id, int direction, void *data, size_t count, u32 addr)
         // TODO: remove this multiple checks
         if (PCI_DMA_TODEVICE == direction)
             if ( copy_from_user(xpdmas[id].writeBuffer, curData, btt) )  {
-                printk(KERN_WARNING"%s: sg_block: Failed copy from user.\n", DEVICE_NAME);
+                printk(KERN_WARNING"%s: dma_block: Failed copy from user.\n", DEVICE_NAME);
                 return (CRIT_ERR);
             }
 
-        sg_operation(id, direction, btt, curAddr);
+        if (mode == DMA_SG_MODE)
+        {
+            sg_operation(id, direction, btt, curAddr);
+        }
+        else if (mode == DMA_SIMPLE_MODE)
+        {
+            simple_operation(id, direction, btt, curAddr);
+        }
+        else
+        {
+            printk(KERN_WARNING "%s: Unsupport DMA mode: %d.\n", DEVICE_NAME, mode);
+            return (CRIT_ERR);
+        }
 
         // TODO: remove this multiple checks
         if (PCI_DMA_FROMDEVICE == direction)
             if ( copy_to_user(curData, xpdmas[id].readBuffer, btt) )  {
-                printk("%s: sg_block: Failed copy to user.\n", DEVICE_NAME);
+                printk("%s: dma_block: Failed copy to user.\n", DEVICE_NAME);
                 return (CRIT_ERR);
             }
 
@@ -862,7 +781,7 @@ ssize_t xpdma_send (int id, void *data, size_t count, u32 addr)
     }
 
     //down(&gSemDma);
-    sg_block(id, PCI_DMA_TODEVICE, (void *)data, count, addr);
+    dma_block(id, DMA_SG_MODE, PCI_DMA_TODEVICE, (void *)data, count, addr);
     //up(&gSemDma);
 
     return (SUCCESS);
@@ -876,8 +795,50 @@ ssize_t xpdma_recv (int id, void *data, size_t count, u32 addr)
     }
 
     //down(&gSemDma);
-    sg_block(id, PCI_DMA_FROMDEVICE, (void *)data, count, addr);
+    dma_block(id, DMA_SG_MODE, PCI_DMA_FROMDEVICE, (void *)data, count, addr);
     //up(&gSemDma);
+
+    return (SUCCESS);
+}
+
+ssize_t xpdma_write (struct file *filp, const char __user *buf, size_t count, loff_t *f_pos)
+{
+    int id = 0;
+    u32 addr = 0;
+    xpdma_debug(id, "xpdma_write start");
+
+    if (!xpdmas[id].used)
+    {
+        printk(KERN_WARNING "%s: FPGA %d don't initialized!\n", DEVICE_NAME, id);
+        return (CRIT_ERR);
+    }
+
+    //down(&gSemDma);
+    dma_block(id, DMA_SIMPLE_MODE, PCI_DMA_TODEVICE, (void *)buf, count, addr);
+    //up(&gSemDma);
+
+    xpdma_debug(id, "xpdma_write finish");
+
+    return (SUCCESS);
+}
+
+ssize_t xpdma_read (struct file *filp, char __user *buf, size_t count, loff_t *f_pos)
+{
+    int id = 0;
+    u32 addr = 0;
+    xpdma_debug(id, "xpdma_read start");
+
+    if (!xpdmas[id].used)
+    {
+        printk(KERN_WARNING "%s: FPGA %d don't initialized!\n", DEVICE_NAME, id);
+        return (CRIT_ERR);
+    }
+
+    //down(&gSemDma);
+    dma_block(id, DMA_SIMPLE_MODE, PCI_DMA_FROMDEVICE, (void *)buf, count, addr);
+    //up(&gSemDma);
+
+    xpdma_debug(id, "xpdma_read finish");
 
     return (SUCCESS);
 }
@@ -927,11 +888,11 @@ static int xpdma_getResource(int id)
         printk(KERN_WARNING"%s: getResource: Base Address not set.\n", DEVICE_NAME);
         return (CRIT_ERR);
     }
-    printk(KERN_INFO "%s: getResource: Base hw val %X\n", DEVICE_NAME, (unsigned int)xpdmas[id].baseHdwr);
+    printk(KERN_INFO "%s: getResource: Base hw val 0x%016lX\n", DEVICE_NAME, xpdmas[id].baseHdwr);
 
     // Get the Base Address Length
     xpdmas[id].baseLen = pci_resource_len(xpdmas[id].dev, 0);
-    printk(KERN_INFO "%s: getResource: Base hw len %d\n", DEVICE_NAME, (unsigned int)xpdmas[id].baseLen);
+    printk(KERN_INFO "%s: getResource: Base hw len %lu\n", DEVICE_NAME, xpdmas[id].baseLen);
 
     // Get Virtual HW address
     xpdmas[id].baseVirt = ioremap(xpdmas[id].baseHdwr, xpdmas[id].baseLen);
@@ -941,13 +902,11 @@ static int xpdma_getResource(int id)
     }
     printk(KERN_INFO "%s: Init: Virt HW address %lX\n", DEVICE_NAME, (size_t)xpdmas[id].baseVirt);
 
-    // Check the memory region to see if it is in use
+    // Try to gain exclusive control of memory for hardware.
     if (!request_mem_region(xpdmas[id].baseHdwr, xpdmas[id].baseLen, "Xilinx_PCIe_CDMA_Driver")) {
         printk(KERN_WARNING"%s: getResource: Memory in use.\n", DEVICE_NAME);
         return (CRIT_ERR);
     }
-
-    // Try to gain exclusive control of memory for hardware.
     xpdmas[id].statFlags |= HAVE_MEM_REGION;
     printk(KERN_INFO"%s: getResource: Initialize Hardware Done..\n", DEVICE_NAME);
 
@@ -969,24 +928,24 @@ static int xpdma_getResource(int id)
         printk(KERN_CRIT"%s: getResource: Unable to allocate xpdmas[id].readBuffer\n", DEVICE_NAME);
         return (CRIT_ERR);
     }
-//     printk(KERN_INFO"%s: getResource: Read buffer allocated: 0x%016lX, Phy:0x%016lX\n",
-//            DEVICE_NAME, (size_t) xpdmas[id].readBuffer, (size_t) xpdmas[id].readHWAddr);
+    printk(KERN_INFO "%s: getResource: Read buffer allocated: 0x%016lX, Phy: 0x%016lX\n",
+           DEVICE_NAME, (size_t)xpdmas[id].readBuffer, (size_t)xpdmas[id].readHWAddr);
 
     xpdmas[id].writeBuffer = dma_alloc_coherent( &xpdmas[id].dev->dev, BUF_SIZE, &xpdmas[id].writeHWAddr, GFP_KERNEL );
     if (NULL == xpdmas[id].writeBuffer) {
         printk(KERN_CRIT"%s: getResource: Unable to allocate xpdmas[id].writeBuffer\n", DEVICE_NAME);
         return (CRIT_ERR);
     }
-//     printk(KERN_INFO"%s: getResource: Write buffer allocated: 0x%016lX, Phy:0x%016lX\n",
-//             DEVICE_NAME, (size_t) xpdmas[id].writeBuffer, (size_t) xpdmas[id].writeHWAddr);
+    printk(KERN_INFO "%s: getResource: Write buffer allocated: 0x%016lX, Phy: 0x%016lX\n",
+           DEVICE_NAME, (size_t)xpdmas[id].writeBuffer, (size_t)xpdmas[id].writeHWAddr);
 
     xpdmas[id].descChain = dma_alloc_coherent( &xpdmas[id].dev->dev, BUF_SIZE, &xpdmas[id].descChainHWAddr, GFP_KERNEL );
     if (NULL == xpdmas[id].descChain) {
         printk(KERN_CRIT"%s: getResource: Unable to allocate xpdmas[id].descChain\n", DEVICE_NAME);
         return (CRIT_ERR);
     }
-//     printk(KERN_INFO"%s: getResource: Descriptor chain buffer allocated: 0x%016lX, Phy:0x%016lX\n",
-//             DEVICE_NAME, (size_t) (xpdmas[id].descChain), (size_t) xpdmas[id].descChainHWAddr);
+    printk(KERN_INFO "%s: getResource: Descriptor chain buffer allocated: 0x%016lX, Phy: 0x%016lX\n",
+           DEVICE_NAME, (size_t)(xpdmas[id].descChain), (size_t)xpdmas[id].descChainHWAddr);
 
     return (SUCCESS);
 }
